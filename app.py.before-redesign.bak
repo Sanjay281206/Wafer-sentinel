@@ -1,0 +1,664 @@
+"""WaferSentinel premium Streamlit industrial intelligence dashboard."""
+import json
+import os
+import platform
+import subprocess
+import sys
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+try:
+    import psutil
+except Exception:
+    psutil = None
+
+from wafersentinel.classes import PATTERNS
+from wafersentinel.pipeline import Sentinel
+from wafersentinel.synth import make_map
+from wafersentinel.yield_calc import die_stats, radial_profile
+
+st.set_page_config(
+    page_title="WaferSentinel | Industrial AI",
+    page_icon="W",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+CSS = """
+<style>
+:root { --bg:#080d18; --panel:#111b2d; --card:#172338; --cyan:#35d9ff; --violet:#9b8cff;
+        --green:#31d69a; --amber:#ffb84d; --red:#ff5577; --text:#f1f5fc; --muted:#94a3b8; }
+.stApp { background: radial-gradient(circle at 80% 0%, #13213a 0, #080d18 38%, #080d18 100%); color:var(--text); }
+[data-testid="stHeader"] { background:transparent; }
+[data-testid="stSidebar"] { background:linear-gradient(180deg,#0d1525,#09101d); border-right:1px solid #1d2c43; }
+[data-testid="stSidebar"] * { color:#dbe6f5; }
+.block-container { max-width:1440px; padding-top:1rem; }
+.ws-header { display:flex; align-items:center; justify-content:space-between; border:1px solid #1d3150;
+             background:linear-gradient(100deg,rgba(23,35,56,.96),rgba(12,20,34,.94)); border-radius:14px;
+             padding:.75rem 1rem; margin-bottom:.8rem; box-shadow:0 8px 30px rgba(0,0,0,.18); }
+.ws-brand { display:flex; align-items:center; gap:.75rem; }
+.ws-mark { width:42px;height:42px;border-radius:10px;display:grid;place-items:center;
+           border:1px solid rgba(53,217,255,.55);background:linear-gradient(135deg,#172b48,#10233a);
+           color:#35d9ff;font-weight:800;letter-spacing:.08em;box-shadow:0 0 22px rgba(53,217,255,.12); }
+.ws-name { font-size:1.08rem;font-weight:800;letter-spacing:.16em; }
+.ws-tag { color:var(--muted);font-size:.72rem;margin-top:.15rem; }
+.status-strip { display:flex;gap:.55rem;align-items:center;flex-wrap:wrap;justify-content:flex-end; }
+.status { border:1px solid #263d5e;border-radius:999px;padding:.28rem .58rem;font-size:.67rem;
+          letter-spacing:.04em;color:#b8c7db;background:#101827;white-space:nowrap; }
+.status.good { border-color:rgba(49,214,154,.45);color:#75e7b9; }
+.status.warn { border-color:rgba(255,184,77,.45);color:#ffc875; }
+.status.bad { border-color:rgba(255,85,119,.45);color:#ff91a6; }
+.kpi { height:118px;border:1px solid #20334e;border-radius:12px;padding:.82rem 1rem;
+       background:linear-gradient(145deg,rgba(23,35,56,.92),rgba(13,22,37,.92));
+       box-shadow:inset 0 1px rgba(255,255,255,.025),0 10px 24px rgba(0,0,0,.12); }
+.kpi-label { color:#8fa1b8;font-size:.68rem;text-transform:uppercase;letter-spacing:.11em; }
+.kpi-value { color:#f7fbff;font-size:1.45rem;font-weight:750;margin:.38rem 0 .12rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.kpi-sub { color:#7590ad;font-size:.72rem; }
+.panel { border:1px solid #20334e;border-radius:12px;background:rgba(17,27,45,.82);padding:1rem; }
+.panel-title { color:#dbe8f7;font-size:.78rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.65rem; }
+.pipeline { display:grid;grid-template-columns:repeat(7,1fr);align-items:center;margin:.25rem 0 .8rem; }
+.pipe-node { min-height:68px;border:1px solid #263d5e;border-radius:10px;text-align:center;padding:.55rem .25rem;
+             background:#101a2b;color:#cbd7e7;font-size:.66rem;font-weight:750;letter-spacing:.04em; }
+.pipe-node.done { border-color:rgba(49,214,154,.55);box-shadow:0 0 16px rgba(49,214,154,.08); }
+.pipe-node.wait { border-color:rgba(255,184,77,.35);color:#b3a58c; }
+.pipe-arrow { height:1px;background:linear-gradient(90deg,#35d9ff,#9b8cff);box-shadow:0 0 8px rgba(53,217,255,.3); }
+.metric-card { border-left:3px solid #35d9ff;padding:.75rem .9rem;background:#101a2b;border-radius:8px;margin:.25rem 0; }
+.metric-card.amber { border-left-color:#ffb84d; }
+.metric-card.green { border-left-color:#31d69a; }
+.metric-card.red { border-left-color:#ff5577; }
+.small-note { color:#8297af;font-size:.75rem;line-height:1.5; }
+h1,h2,h3,h4,h5,h6 { color:#edf5ff !important; }
+div[data-testid="stMetric"] { background:#111b2d;border:1px solid #20334e;border-radius:10px;padding:.7rem; }
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
+
+
+def init_state():
+    defaults = {
+        "map": None,
+        "wafer_id": "NOT GENERATED",
+        "input_source": "No source",
+        "dataset": "Synthetic",
+        "analysis": None,
+        "history": [],
+        "section": "Command Center",
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+init_state()
+
+
+def plot_layout(fig, height=440):
+    fig.update_layout(
+        template="plotly_dark",
+        height=height,
+        margin=dict(l=20, r=20, t=35, b=20),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,17,29,.75)",
+        font=dict(color="#cbd7e7", family="Arial"),
+        legend=dict(orientation="h", y=1.02),
+        hoverlabel=dict(bgcolor="#172338", bordercolor="#35d9ff", font_color="#f1f5fc"),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(showgrid=False, zeroline=False)
+    return fig
+
+
+def wafer_figure(m, mode="Original wafer map"):
+    n = m.shape[0]
+    y, x = np.mgrid[0:n, 0:n]
+    unavailable = m == 0
+    good = m == 1
+    fail = m == 2
+    fig = go.Figure()
+    for mask, name, color in ((unavailable, "Unavailable", "#263448"), (good, "Good die", "#31d69a"), (fail, "Failed die", "#ff5577")):
+        yy, xx = y[mask], x[mask]
+        custom = np.full(len(xx), name)
+        fig.add_trace(go.Scatter(
+            x=xx, y=yy, mode="markers", name=name,
+            marker=dict(size=6 if n <= 64 else 4, color=color, line=dict(width=0)),
+            customdata=custom, hovertemplate="Die X %{x}<br>Die Y %{y}<br>Status %{customdata}<extra></extra>",
+        ))
+    c = (n - 1) / 2
+    theta = np.linspace(0, 2 * np.pi, 240)
+    fig.add_trace(go.Scatter(
+        x=c + c * np.cos(theta), y=c + c * np.sin(theta),
+        mode="lines", line=dict(color="#35d9ff", width=2), showlegend=False,
+        hoverinfo="skip",
+    ))
+    fig.update_yaxes(autorange="reversed", scaleanchor="x", scaleratio=1)
+    fig.update_xaxes(range=[-2, n + 1])
+    fig.update_yaxes(range=[-2, n + 1])
+    fig.update_layout(title=mode)
+    return plot_layout(fig, 470)
+
+
+def heatmap_figure(m):
+    y, x = np.mgrid[0:m.shape[0], 0:m.shape[1]]
+    fail = m == 2
+    bins = 10
+    heat, _, _ = np.histogram2d(y[fail], x[fail], bins=bins, range=[[0, m.shape[0]], [0, m.shape[1]]])
+    fig = go.Figure(go.Heatmap(z=heat, colorscale=[[0, "#101a2b"], [.45, "#9b8cff"], [1, "#ff5577"]], colorbar=dict(title="Failed dies")))
+    fig.update_layout(title="Spatial defect concentration")
+    fig.update_yaxes(autorange="reversed")
+    return plot_layout(fig, 470)
+
+
+def radial_figure(m):
+    profile = radial_profile(m)
+    fig = go.Figure(go.Bar(
+        x=[f"{i / 10:.1f}-{(i + 1) / 10:.1f}" for i in range(10)],
+        y=np.array(profile) * 100,
+        marker=dict(color=np.array(profile), colorscale=[[0, "#31d69a"], [.5, "#ffb84d"], [1, "#ff5577"]], line=dict(width=0)),
+        hovertemplate="Radius band %{x}<br>Failure rate %{y:.2f}%<extra></extra>",
+    ))
+    fig.update_layout(title="Radial defect density profile", yaxis_title="Failure rate (%)")
+    return plot_layout(fig, 310)
+
+
+def zone_figure(stats):
+    zones = stats["zone_fail_rate"]
+    fig = go.Figure(go.Bar(
+        x=["Centre", "Middle", "Edge"],
+        y=[zones["center"] * 100, zones["mid"] * 100, zones["edge"] * 100],
+        marker=dict(color=["#35d9ff", "#9b8cff", "#ff5577"]),
+        text=[f"{zones[k]*100:.1f}%" for k in ("center", "mid", "edge")],
+        textposition="outside",
+    ))
+    fig.update_layout(title="Zone-wise failure rate", yaxis_title="Failure rate (%)")
+    fig.update_yaxes(rangemode="tozero")
+    return plot_layout(fig, 310)
+
+
+def bar_chart(values, title, color="#35d9ff"):
+    fig = go.Figure(go.Bar(x=list(values.keys()), y=list(values.values()), marker=dict(color=color)))
+    fig.update_layout(title=title, yaxis_title="Probability")
+    return plot_layout(fig, 310)
+
+
+def kpi(label, value, sub="", accent=""):
+    cls = "kpi"
+    return f'<div class="{cls}"><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div><div class="kpi-sub">{sub}</div></div>'
+
+
+def checkpoint_options():
+    root = os.path.abspath("runs")
+    return sorted([os.path.join(root, f) for f in os.listdir(root) if f.endswith(".pt")]) if os.path.isdir(root) else []
+
+
+def gguf_options():
+    found = []
+    for root in ("models", "data", "."):
+        if os.path.isdir(root):
+            for dirpath, _, files in os.walk(root):
+                if dirpath.startswith(".venv"):
+                    continue
+                found += [os.path.join(dirpath, f) for f in files if f.lower().endswith(".gguf")]
+    return sorted(set(found))
+
+
+with st.sidebar:
+    st.markdown("### WAFERSENTINEL")
+    st.caption("EDGE-AI SEMICONDUCTOR INTELLIGENCE")
+    nav = st.radio(
+        "Platform",
+        ["Command Center", "Wafer Intelligence", "AI Root-Cause Engine",
+         "Yield & Die Analytics", "Edge Hardware Monitor", "Research & Validation Lab"],
+        label_visibility="collapsed",
+    )
+    st.session_state.section = nav
+    st.markdown("---")
+    with st.expander("Configuration", expanded=False):
+        cpts = checkpoint_options()
+        ckpt_choice = st.selectbox("CNN checkpoint", ["None - use heuristic"] + cpts,
+                                   format_func=lambda p: os.path.basename(p) if p != "None - use heuristic" else p)
+        ckpt = None if ckpt_choice.startswith("None") else ckpt_choice
+        ggufs = gguf_options()
+        gguf_choice = st.selectbox("Llama GGUF", ["None - rule-based"] + ggufs,
+                                   format_func=lambda p: os.path.basename(p) if p != "None - rule-based" else p)
+        gguf = None if gguf_choice.startswith("None") else gguf_choice
+        baseline = st.slider("Baseline die yield", 0.80, 0.99, 0.95, 0.01)
+        seed = st.number_input("Random seed", 0, 9999, 42)
+        st.session_state.dataset = "Synthetic" if st.session_state.input_source != "Uploaded" else "Uploaded .npy"
+        source = st.radio("Input source", ["Synthetic", "Upload .npy", "Multiple wafers"])
+        m = None
+        if source == "Synthetic":
+            patterns = st.multiselect("Defect patterns", PATTERNS, ["Edge-Ring"])
+            size = st.select_slider("Wafer resolution", options=[32, 48, 64, 96], value=64)
+            m = make_map(patterns, size, np.random.default_rng(int(seed)))
+            st.session_state.wafer_id = f"SYN-{int(seed):04d}-{size}"
+            st.session_state.input_source = "Synthetic"
+        elif source == "Upload .npy":
+            uploaded = st.file_uploader("Upload wafer map", type=["npy"], accept_multiple_files=False)
+            if uploaded:
+                try:
+                    m = np.load(uploaded, allow_pickle=False)
+                    if m.ndim != 2 or not set(np.unique(m)).issubset({0, 1, 2}):
+                        st.error("Expected a 2D uint8 map encoded with 0, 1, and 2.")
+                        m = None
+                    else:
+                        st.session_state.wafer_id = os.path.splitext(uploaded.name)[0]
+                        st.session_state.input_source = "Uploaded"
+                except Exception as exc:
+                    st.error(f"Unable to load upload: {exc}")
+        else:
+            uploads = st.file_uploader("Upload wafer maps", type=["npy"], accept_multiple_files=True)
+            if uploads:
+                batch_results = []
+                for uploaded in uploads:
+                    try:
+                        bm = np.load(uploaded, allow_pickle=False)
+                        if bm.ndim == 2:
+                            batch_results.append((uploaded.name, bm))
+                    except Exception:
+                        pass
+                if batch_results:
+                    m = batch_results[0][1]
+                    st.session_state.wafer_id = f"BATCH-{len(batch_results)}"
+                    st.session_state.input_source = "Uploaded batch"
+                    st.session_state["batch_maps"] = batch_results
+    st.caption("All inference is local; no wafer data leaves this device.")
+
+st.markdown(
+    '<div class="ws-header"><div class="ws-brand"><div class="ws-mark">WS</div>'
+    '<div><div class="ws-name">WAFERSENTINEL</div><div class="ws-tag">'
+    'Intelligent Wafer Defect Detection | AI Root-Cause Analysis | Edge Intelligence</div></div></div>'
+    '<div class="status-strip">'
+    '<span class="status good">SYSTEM ONLINE</span>'
+    '<span class="status warn">SIMULATION / LOCAL</span>'
+    '</div></div>', unsafe_allow_html=True)
+
+try:
+    if m is not None:
+        sentinel = Sentinel(ckpt, gguf)
+        result = sentinel.analyse(m, baseline)
+        st.session_state.map = m
+        st.session_state.analysis = result
+        if not st.session_state.history or st.session_state.history[-1]["wafer_id"] != st.session_state.wafer_id:
+            st.session_state.history.append({
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "wafer_id": st.session_state.wafer_id,
+                "patterns": result["patterns"],
+                "yield": result["stats"]["die_yield"],
+            })
+except Exception as exc:
+    st.error(f"Checkpoint/model could not be loaded: {exc}")
+    sentinel = Sentinel(None, gguf)
+    result = sentinel.analyse(m, baseline) if m is not None else None
+    if result:
+        st.session_state.analysis = result
+
+m = st.session_state.map
+analysis = st.session_state.analysis
+
+last_timestamp = st.session_state.history[-1]["timestamp"] if st.session_state.history else "NOT ANALYSED"
+model_status = "MODEL LOADED" if analysis and analysis["model"]["loaded"] else "HEURISTIC MODE"
+llm_status = "LLAMA READY" if gguf and os.path.exists(gguf) else "RULE ENGINE READY"
+header_status = (
+    f'<span class="status">DATA: {st.session_state.input_source.upper()}</span>'
+    f'<span class="status good">{model_status}</span>'
+    f'<span class="status good">{llm_status}</span>'
+    f'<span class="status bad">HARDWARE NOT DETECTED</span>'
+    f'<span class="status">LAST: {last_timestamp}</span>'
+)
+st.markdown(f'<div class="status-strip" style="justify-content:flex-start;margin:.2rem 0 .8rem">{header_status}</div>', unsafe_allow_html=True)
+
+if analysis is None:
+    st.info("Generate a synthetic wafer or upload a 2D .npy wafer map to begin analysis.")
+else:
+    stats = analysis["stats"]
+    patterns = analysis["patterns"]
+    probs = analysis["probs"]
+    primary = patterns[0] if patterns else "No systematic pattern"
+    confidence = max(analysis["confidence"].values()) if analysis["confidence"] else 0.0
+    low_conf = bool(patterns) and confidence < 0.6
+
+    if st.session_state.section == "Command Center":
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.markdown(kpi("WAFERS ANALYSED", str(len(st.session_state.history)), "Current session"), unsafe_allow_html=True)
+        with c2:
+            st.markdown(kpi("CURRENT WAFER", st.session_state.wafer_id, st.session_state.input_source), unsafe_allow_html=True)
+        with c3:
+            st.markdown(kpi("DEFECT PATTERN", primary, f"{confidence:.1%} max confidence" if patterns else "No thresholded label"), unsafe_allow_html=True)
+        with c4:
+            st.markdown(kpi("DIE YIELD", f"{stats['die_yield']:.1%}", "Calculated from die map"), unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.markdown(kpi("DEFECT DENSITY", f"{stats['failing_die']} dies", f"{stats['failing_die']/max(stats['total_die'],1):.1%} of wafer"), unsafe_allow_html=True)
+        with c2:
+            st.markdown(kpi("CNN LATENCY", f"{analysis['inference_ms']:.2f} ms", "Measured in this run"), unsafe_allow_html=True)
+        with c3:
+            st.markdown(kpi("EDGE DEPLOYMENT", "NOT CONNECTED", "No Hailo/Raspberry Pi detected"), unsafe_allow_html=True)
+        with c4:
+            st.markdown(kpi("BASELINE DELTA", f"{analysis['impact']['yield_loss_pts']:+.2f} pts",
+                            analysis["impact"]["assumption"]), unsafe_allow_html=True)
+
+        stages = ["DATA INGESTION", "PREPROCESSING", "CNN VISION", "CLASSIFICATION",
+                  "LLAMA REASONING", "YIELD ANALYTICS", "EDGE OUTPUT"]
+        node_html = "".join(
+            f'<div class="pipe-node {"done" if i < (6 if gguf else 5) else "wait"}">{i+1:02d}<br>{stage}</div>'
+            + (('<div class="pipe-arrow"></div>' if i < len(stages)-1 else "") if i < len(stages)-1 else "")
+            for i, stage in enumerate(stages)
+        )
+        st.markdown(f'<div class="pipeline">{node_html}</div>', unsafe_allow_html=True)
+
+        left, right = st.columns([1.55, 1])
+        with left:
+            st.markdown('<div class="panel"><div class="panel-title">Wafer Map | Current Inspection</div>', unsafe_allow_html=True)
+            st.plotly_chart(wafer_figure(m), use_container_width=True, config={"scrollZoom": True, "displayModeBar": True})
+            st.markdown("</div>", unsafe_allow_html=True)
+        with right:
+            st.markdown('<div class="panel"><div class="panel-title">Prediction Summary</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="metric-card {"amber" if low_conf else "green"}">'
+                f'<b>Primary prediction</b><br>{primary}<br><span class="small-note">'
+                f'{confidence:.1%} confidence</span></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f'<div class="metric-card"><b>Yield</b><br>{stats["die_yield"]:.1%}<br>'
+                f'<span class="small-note">{stats["total_die"]} tested dies</span></div>',
+                unsafe_allow_html=True,
+            )
+            if low_conf:
+                st.markdown('<div class="metric-card amber"><b>LOW CONFIDENCE</b><br>Manual engineering review required.</div>', unsafe_allow_html=True)
+            report = analysis["report"]
+            st.markdown(
+                f'<div class="metric-card"><b>Engineering insight</b><br><span class="small-note">'
+                f'{report["summary"]}<br><br>{report["yield_impact"]}</span></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(bar_chart(probs, "Defect probability distribution", "#9b8cff"), use_container_width=True)
+        with c2:
+            st.plotly_chart(zone_figure(stats), use_container_width=True)
+
+        if st.session_state.history:
+            hist = pd.DataFrame(st.session_state.history)
+            st.markdown('<div class="panel"><div class="panel-title">Recent Analysis History</div>', unsafe_allow_html=True)
+            st.dataframe(hist, use_container_width=True, hide_index=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    elif st.session_state.section == "Wafer Intelligence":
+        st.subheader("Wafer Analysis Workspace")
+        mode = st.segmented_control(
+            "Visualization mode",
+            ["Original wafer map", "Defect distribution", "Spatial heatmap", "Classification overlay", "Radial distribution"],
+            default="Original wafer map",
+        )
+        if mode == "Spatial heatmap":
+            st.plotly_chart(heatmap_figure(m), use_container_width=True)
+        elif mode == "Radial distribution":
+            st.plotly_chart(radial_figure(m), use_container_width=True)
+        elif mode == "Classification overlay":
+            st.plotly_chart(wafer_figure(m, "Defect classification overlay"), use_container_width=True)
+        else:
+            st.plotly_chart(wafer_figure(m, mode), use_container_width=True)
+
+        total = stats["total_die"]
+        good = total - stats["failing_die"]
+        c1, c2, c3, c4, c5 = st.columns(5)
+        for col, label, value in zip(
+            (c1, c2, c3, c4, c5),
+            ("TOTAL DIES", "GOOD DIES", "FAILED DIES", "UNAVAILABLE DIES", "DEFECT DENSITY"),
+            (total, good, stats["failing_die"], int(np.count_nonzero(m == 0)), f"{stats['failing_die']/max(total,1):.1%}")
+        ):
+            col.metric(label, value)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(zone_figure(stats), use_container_width=True)
+        with c2:
+            st.plotly_chart(radial_figure(m), use_container_width=True)
+
+        die_df = pd.DataFrame([
+            {"x": int(x), "y": int(y), "status": "Unavailable" if value == 0 else ("Good" if value == 1 else "Failed")}
+            for y, row in enumerate(m) for x, value in enumerate(row)
+        ])
+        st.download_button("Export die-level CSV", die_df.to_csv(index=False).encode("utf-8"),
+                           file_name=f"{st.session_state.wafer_id}_die_analytics.csv", mime="text/csv")
+
+    elif st.session_state.section == "AI Root-Cause Engine":
+        st.subheader("CNN Vision & Root-Cause Intelligence")
+        c1, c2 = st.columns([1.1, 1])
+        with c1:
+            st.markdown('<div class="panel"><div class="panel-title">CNN Vision Results</div>', unsafe_allow_html=True)
+            st.metric("Primary pattern", primary)
+            st.metric("Confidence", f"{confidence:.1%}")
+            st.metric("Inference latency", f"{analysis['inference_ms']:.2f} ms")
+            st.caption(f"Model: {analysis['model']['name']} | Device: {analysis['model']['inference_device']}")
+            st.plotly_chart(bar_chart(probs, "Secondary pattern probabilities", "#9b8cff"), use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with c2:
+            report = analysis["report"]
+            cards = [
+                ("DETECTED DEFECT", report["summary"]),
+                ("POSSIBLE PROCESS CAUSE", "; ".join(report["likely_causes"]) if report["likely_causes"] else "No systematic cause identified."),
+                ("ENGINEERING INTERPRETATION", "This spatial and model result is a prediction indicator, not a confirmed physical root cause."),
+                ("YIELD IMPACT", report["yield_impact"]),
+                ("RECOMMENDED CORRECTIVE ACTION", report["recommended_action"]),
+                ("CONFIDENCE / REVIEW", report["confidence_note"]),
+            ]
+            for title, body in cards:
+                st.markdown(f'<div class="metric-card {"amber" if "CONFIDENCE" in title and low_conf else ""}">'
+                            f'<b>{title}</b><br><span class="small-note">{body}</span></div>', unsafe_allow_html=True)
+            with st.expander("Detailed AI reasoning"):
+                st.json(report)
+
+    elif st.session_state.section == "Yield & Die Analytics":
+        st.subheader("Yield & Die Analytics")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total tested dies", stats["total_die"])
+        c2.metric("Good dies", stats["total_die"] - stats["failing_die"])
+        c3.metric("Failed dies", stats["failing_die"])
+        c4.metric("Die yield", f"{stats['die_yield']:.1%}")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=stats["die_yield"] * 100,
+                number={"suffix": "%"},
+                gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#35d9ff"},
+                       "steps": [{"range": [0, 80], "color": "#3a2430"},
+                                 {"range": [80, 95], "color": "#25283a"},
+                                 {"range": [95, 100], "color": "#17382f"}],
+                       "threshold": {"line": {"color": "#ffb84d", "width": 3},
+                                     "thickness": 0.75, "value": baseline * 100}},
+            ))
+            gauge.update_layout(title="Calculated die yield")
+            st.plotly_chart(plot_layout(gauge, 360), use_container_width=True)
+        with c2:
+            donut = go.Figure(go.Pie(
+                labels=["Good", "Failed"],
+                values=[stats["total_die"] - stats["failing_die"], stats["failing_die"]],
+                hole=.68,
+                marker=dict(colors=["#31d69a", "#ff5577"]),
+            ))
+            donut.update_layout(title="Good vs failed dies")
+            st.plotly_chart(plot_layout(donut, 360), use_container_width=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(zone_figure(stats), use_container_width=True)
+        with c2:
+            st.plotly_chart(radial_figure(m), use_container_width=True)
+
+        st.markdown(
+            '<div class="panel"><div class="panel-title">Methodology & Assumptions</div>'
+            '<span class="small-note">Yield = Good Tested Dies / Total Tested Dies. '
+            'The baseline is a configurable 95% reference unless changed. WM-811K is not used to claim '
+            'measured fab yield or manufacturing cost. The current map estimate is derived only from '
+            'available 0/1/2 die encoding.</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    elif st.session_state.section == "Edge Hardware Monitor":
+        st.subheader("Edge AI Hardware Monitor")
+        host = platform.node() or "Unavailable"
+        os_name = f"{platform.system()} {platform.release()}"
+        cpu_name = platform.processor() or "Unavailable"
+        ram_total = "Unavailable"
+        ram_used = "Unavailable"
+        cpu_pct = "Unavailable"
+        if psutil:
+            ram = psutil.virtual_memory()
+            ram_total = f"{ram.total / (1024**3):.2f} GB"
+            ram_used = f"{ram.percent:.1f}%"
+            cpu_pct = f"{psutil.cpu_percent(interval=0.2):.1f}%"
+
+        hailo_status = "NOT DETECTED"
+        hailo_info = "No /dev/hailo0 device or hailortcli detection"
+        if os.path.exists("/dev/hailo0"):
+            hailo_status = "DEVICE PRESENT"
+            hailo_info = "/dev/hailo0 detected"
+        else:
+            try:
+                probe = subprocess.run(["hailortcli", "fw-control", "identify"], capture_output=True, text=True, timeout=3)
+                if probe.returncode == 0:
+                    hailo_status = "DETECTED"
+                    hailo_info = probe.stdout[:500] or "Hailo CLI responded successfully"
+            except Exception:
+                pass
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown('<div class="panel"><div class="panel-title">Host System</div>', unsafe_allow_html=True)
+            for label, value in [
+                ("Host", host), ("Operating system", os_name), ("CPU", cpu_name),
+                ("Python", sys.version.split()[0]), ("Available RAM", ram_total),
+                ("RAM utilization", ram_used), ("CPU utilization", cpu_pct),
+                ("Hailo NPU", hailo_status), ("Hailo information", hailo_info),
+            ]:
+                st.markdown(f'<div class="metric-card"><b>{label}</b><br><span class="small-note">{value}</span></div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with c2:
+            st.markdown('<div class="panel"><div class="panel-title">AI Model</div>', unsafe_allow_html=True)
+            model = analysis["model"]
+            model_file = ckpt if ckpt else "Not loaded"
+            model_size = f"{os.path.getsize(model_file)/1024:.1f} KB" if ckpt and os.path.isfile(model_file) else "Unavailable"
+            params = "Unavailable"
+            try:
+                if ckpt:
+                    import torch
+                    state = torch.load(ckpt, map_location="cpu")["state"]
+                    params = f"{sum(v.numel() for v in state.values()):,}"
+            except Exception:
+                pass
+            for label, value in [
+                ("Architecture", "WaferCNN"), ("Parameters", params), ("Model file size", model_size),
+                ("Model format", model["format"].upper()), ("Precision", "FP32 / unavailable quantised result"),
+                ("Input resolution", str(model["input_size"] or "Unavailable")),
+                ("Number of classes", str(len(PATTERNS))), ("Inference device", model["inference_device"]),
+                ("Loading status", "MODEL LOADED" if model["loaded"] else "HEURISTIC ONLY"),
+            ]:
+                st.markdown(f'<div class="metric-card"><b>{label}</b><br><span class="small-note">{value}</span></div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            '<div class="panel"><div class="panel-title">Edge Processing Flow</div>'
+            '<span class="small-note">WAFER INPUT → RASPBERRY PI / HOST → HAILO NPU '
+            '→ CNN INFERENCE → LOCAL LLAMA → ANALYSIS OUTPUT</span><br>'
+            '<span class="status bad">HARDWARE CONNECTION NOT DETECTED</span></div>',
+            unsafe_allow_html=True,
+        )
+        st.warning("Cross-platform benchmark data is unavailable. No laptop, Raspberry Pi, Hailo, INT8, throughput, power, or memory benchmark values have been invented.")
+
+    elif st.session_state.section == "Research & Validation Lab":
+        st.subheader("Research & Validation Lab")
+        eval_path = os.path.abspath("runs/eval_report.json")
+        export_files = sorted([os.path.abspath(os.path.join("runs", "export", f))
+                               for f in os.listdir(os.path.abspath("runs/export"))]) if os.path.isdir(os.path.abspath("runs/export")) else []
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown('<div class="panel"><div class="panel-title">Dataset & Preprocessing</div>', unsafe_allow_html=True)
+            for label, value in [
+                ("Dataset", st.session_state.dataset),
+                ("Source support", "Synthetic / WM-811K / uploaded 0/1/2"),
+                ("Samples loaded", str(len(st.session_state.history)) if st.session_state.history else "No analysis history"),
+                ("Preprocessing", "3-channel one-hot outside/pass/fail; 64 px default"),
+                ("Random seed", str(int(seed))),
+                ("Limitations", "Uploaded maps may not represent WM-811K distribution."),
+            ]:
+                st.markdown(f'<div class="metric-card"><b>{label}</b><br><span class="small-note">{value}</span></div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with c2:
+            counts = {p: 1 if p in patterns else 0 for p in PATTERNS}
+            st.plotly_chart(bar_chart(counts, "Current selected/class indicator", "#35d9ff"), use_container_width=True)
+            st.caption("Class distribution represents the current inference selection, not a claimed dataset sample count.")
+
+        eval_data = None
+        if os.path.isfile(eval_path):
+            try:
+                with open(eval_path, "r", encoding="utf-8") as handle:
+                    eval_data = json.load(handle)
+            except Exception:
+                pass
+
+        st.markdown('<div class="panel"><div class="panel-title">CNN Evaluation</div>', unsafe_allow_html=True)
+        if eval_data:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Macro F1", f"{eval_data.get('macro_f1', float('nan')):.3f}")
+            c2.metric("Test wafers", eval_data.get("n_test", "Unavailable"))
+            c3.metric("False alarm", f"{eval_data.get('false_alarm_rate', 0)*100:.2f}%")
+            c4.metric("Miss rate", f"{eval_data.get('miss_rate', 0)*100:.2f}%")
+            per_class = pd.DataFrame(eval_data.get("per_class", {})).T
+            if not per_class.empty:
+                fig = go.Figure()
+                for metric, color in (("precision", "#35d9ff"), ("recall", "#9b8cff"), ("f1", "#31d69a")):
+                    if metric in per_class:
+                        fig.add_trace(go.Bar(name=metric.capitalize(), x=per_class.index, y=per_class[metric], marker=dict(color=color)))
+                st.plotly_chart(plot_layout(fig, 360), use_container_width=True)
+            for conf in sorted([p for p in (os.path.abspath("runs/eval_report_confusion.csv"),) if os.path.isfile(p)]):
+                st.download_button("Download confusion matrix CSV", open(conf, "rb").read(),
+                                   file_name=os.path.basename(conf), mime="text/csv")
+        else:
+            st.info("Training/evaluation curves and confusion-matrix metrics are unavailable until an evaluation report is generated with evaluate.py.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="panel"><div class="panel-title">Quantisation Evaluation</div>', unsafe_allow_html=True)
+        quant_path = next((p for p in export_files if p.endswith("_export.json")), None)
+        if quant_path:
+            try:
+                q = json.load(open(quant_path, "r", encoding="utf-8"))
+                st.json(q)
+            except Exception as exc:
+                st.error(f"Could not read quantisation report: {exc}")
+        else:
+            st.info("FP32/INT8 export metrics are unavailable. Generate them with wafersentinel.export.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            '<div class="panel"><div class="panel-title">Experimental Limitations</div>'
+            '<span class="small-note">WM-811K wafer labels and spatial maps do not provide measured production yield, '
+            'die cost, or verified process-cause ground truth. Root causes are knowledge-base hypotheses. '
+            'Synthetic data is demonstrative. Hailo and Raspberry Pi benchmarks require target-hardware measurements.</span></div>',
+            unsafe_allow_html=True,
+        )
+
+if analysis:
+    payload = {
+        "wafer_id": st.session_state.wafer_id,
+        "dataset_source": st.session_state.dataset,
+        "input_source": st.session_state.input_source,
+        "analysis_timestamp": datetime.now().isoformat(timespec="seconds"),
+        "prediction": analysis,
+        "methodology": "Synthetic or uploaded 0/1/2 map; yield is calculated as good tested dies divided by total tested dies.",
+    }
+    st.sidebar.download_button(
+        "Download analysis report (JSON)",
+        json.dumps(payload, indent=2).encode("utf-8"),
+        file_name=f"{st.session_state.wafer_id}_analysis.json",
+        mime="application/json",
+    )

@@ -1,0 +1,10 @@
+,pred Center,pred Donut,pred Edge-Loc,pred Edge-Ring,pred Loc,pred Near-full,pred Scratch,pred Random,pred none
+true Center,420,0,2,0,1,0,1,0,12
+true Donut,0,53,0,2,1,0,3,0,1
+true Edge-Loc,1,0,401,4,13,0,0,0,32
+true Edge-Ring,0,0,6,948,0,0,0,0,5
+true Loc,13,5,23,0,293,0,10,0,46
+true Near-full,0,0,0,0,0,10,0,0,0
+true Scratch,1,0,1,1,5,0,90,0,7
+true Random,1,3,8,0,3,0,0,41,7
+true none,9,0,30,4,11,0,5,1,757

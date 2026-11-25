@@ -1,0 +1,68 @@
+{
+  "per_class": {
+    "Center": {
+      "precision": 0.9253,
+      "recall": 0.9656,
+      "f1": 0.945,
+      "support": 436
+    },
+    "Donut": {
+      "precision": 0.75,
+      "recall": 0.95,
+      "f1": 0.8382,
+      "support": 60
+    },
+    "Edge-Loc": {
+      "precision": 0.8169,
+      "recall": 0.9002,
+      "f1": 0.8565,
+      "support": 451
+    },
+    "Edge-Ring": {
+      "precision": 0.9794,
+      "recall": 0.9917,
+      "f1": 0.9855,
+      "support": 959
+    },
+    "Loc": {
+      "precision": 0.801,
+      "recall": 0.7949,
+      "f1": 0.7979,
+      "support": 390
+    },
+    "Near-full": {
+      "precision": 0.8333,
+      "recall": 1.0,
+      "f1": 0.9091,
+      "support": 10
+    },
+    "Scratch": {
+      "precision": 0.8017,
+      "recall": 0.8857,
+      "f1": 0.8416,
+      "support": 105
+    },
+    "Random": {
+      "precision": 0.9388,
+      "recall": 0.7302,
+      "f1": 0.8214,
+      "support": 63
+    }
+  },
+  "macro_f1": 0.8744203069867102,
+  "false_alarm_rate": 0.07343941248470012,
+  "miss_rate": 0.0444624090541633,
+  "exact_match": 0.8857490124582194,
+  "thresholds": {
+    "Center": 0.55,
+    "Donut": 0.65,
+    "Edge-Loc": 0.55,
+    "Edge-Ring": 0.55,
+    "Loc": 0.65,
+    "Near-full": 0.45000000000000007,
+    "Scratch": 0.7000000000000001,
+    "Random": 0.85
+  },
+  "n_tune": 3541,
+  "n_test": 3291
+}

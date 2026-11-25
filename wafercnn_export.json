@@ -1,0 +1,92 @@
+{
+  "table": {
+    "FP32 ONNX": {
+      "macro_f1": 0.4147,
+      "false_alarm": 1.0,
+      "miss": 0.0,
+      "exact": 0.0,
+      "size_KB": 241.3271,
+      "latency_ms": 0.2321
+    },
+    "INT8 (FP32 thresholds)": {
+      "macro_f1": 0.4164,
+      "false_alarm": 1.0,
+      "miss": 0.0,
+      "exact": 0.0,
+      "size_KB": 75.3369,
+      "latency_ms": 0.2718
+    },
+    "INT8 (re-tuned thresholds)": {
+      "macro_f1": 0.4152,
+      "false_alarm": 1.0,
+      "miss": 0.0,
+      "exact": 0.0,
+      "size_KB": 75.3369,
+      "latency_ms": 0.2718
+    }
+  },
+  "per_class_f1": {
+    "Center": {
+      "FP32": 0.2299,
+      "INT8 re-tuned": 0.2315,
+      "change": 0.0016
+    },
+    "Donut": {
+      "FP32": 0.5,
+      "INT8 re-tuned": 0.507,
+      "change": 0.007
+    },
+    "Edge-Loc": {
+      "FP32": 0.3228,
+      "INT8 re-tuned": 0.3166,
+      "change": -0.0062
+    },
+    "Edge-Ring": {
+      "FP32": 0.9071,
+      "INT8 re-tuned": 0.9101,
+      "change": 0.003
+    },
+    "Loc": {
+      "FP32": 0.2996,
+      "INT8 re-tuned": 0.2995,
+      "change": -0.0001
+    },
+    "Near-full": {
+      "FP32": 0.9474,
+      "INT8 re-tuned": 0.9474,
+      "change": 0.0
+    },
+    "Scratch": {
+      "FP32": 0.0618,
+      "INT8 re-tuned": 0.0618,
+      "change": 0.0
+    },
+    "Random": {
+      "FP32": 0.0492,
+      "INT8 re-tuned": 0.048,
+      "change": -0.0012
+    }
+  },
+  "fp32_int8_agreement": 0.8957763597690671,
+  "calibration_wafers": 360,
+  "thresholds_fp32": {
+    "Center": 0.1,
+    "Donut": 0.25,
+    "Edge-Loc": 0.5,
+    "Edge-Ring": 0.30000000000000004,
+    "Loc": 0.45000000000000007,
+    "Near-full": 0.2,
+    "Scratch": 0.1,
+    "Random": 0.4
+  },
+  "thresholds_int8": {
+    "Center": 0.1,
+    "Donut": 0.25,
+    "Edge-Loc": 0.45000000000000007,
+    "Edge-Ring": 0.30000000000000004,
+    "Loc": 0.5,
+    "Near-full": 0.2,
+    "Scratch": 0.1,
+    "Random": 0.4
+  }
+}
