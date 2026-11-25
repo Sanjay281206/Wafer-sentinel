@@ -1,0 +1,71 @@
+{
+  "logit_scale": [
+    0.0005552213406190276,
+    0.0004020580090582371,
+    0.0004380557220429182,
+    0.0002874868514481932,
+    0.0007445535156875849,
+    0.0005473153432831168,
+    0.0005132014048285782,
+    0.0002658444573171437
+  ],
+  "thresholds_int_balanced": {
+    "Center": 0.55,
+    "Donut": 0.5,
+    "Edge-Loc": 0.6,
+    "Edge-Ring": 0.7000000000000001,
+    "Loc": 0.55,
+    "Near-full": 0.30000000000000004,
+    "Scratch": 0.6,
+    "Random": 0.75
+  },
+  "thresholds_int_sensitive": {
+    "Center": 0.4,
+    "Donut": 0.45000000000000007,
+    "Edge-Loc": 0.45000000000000007,
+    "Edge-Ring": 0.4,
+    "Loc": 0.45000000000000007,
+    "Near-full": 0.30000000000000004,
+    "Scratch": 0.45000000000000007,
+    "Random": 0.75
+  },
+  "accuracy_report": {
+    "float": {
+      "balanced": {
+        "real_macroF1": 0.733,
+        "real_false_alarm": 0.0392,
+        "real_miss": 0.0671,
+        "real_exact": 0.8733,
+        "mixed_macroF1": 0.9916,
+        "mixed_exact": 0.9633
+      },
+      "sensitive": {
+        "real_macroF1": 0.7305,
+        "real_false_alarm": 0.1046,
+        "real_miss": 0.0157,
+        "real_exact": 0.8367,
+        "mixed_macroF1": 0.9891,
+        "mixed_exact": 0.9483
+      }
+    },
+    "integer": {
+      "balanced": {
+        "real_macroF1": 0.7496,
+        "real_false_alarm": 0.0458,
+        "real_miss": 0.0582,
+        "real_exact": 0.8783,
+        "mixed_macroF1": 0.9912,
+        "mixed_exact": 0.9617
+      },
+      "sensitive": {
+        "real_macroF1": 0.7245,
+        "real_false_alarm": 0.1242,
+        "real_miss": 0.0157,
+        "real_exact": 0.8267,
+        "mixed_macroF1": 0.9899,
+        "mixed_exact": 0.9517
+      }
+    }
+  },
+  "label_set_agreement_float_vs_int": 0.9683333333333334
+}

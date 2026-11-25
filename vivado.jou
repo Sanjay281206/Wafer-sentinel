@@ -1,0 +1,27 @@
+#-----------------------------------------------------------
+# Vivado v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 19:35:11 GMT 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Sat Nov 21 01:47:59 2026
+# Process ID         : 2584
+# Current directory  : C:/Users/karik/Downloads/zcu104_wafersentinel_a/zcu104_wafersentinel/build/vivado_proj
+# Command line       : vivado.exe -gui_launcher_event rodinguilauncherevent38264 C:\Users\karik\Downloads\zcu104_wafersentinel_a\zcu104_wafersentinel\build\vivado_proj\wafer_zcu104.xpr
+# Log file           : C:/Users/karik/Downloads/zcu104_wafersentinel_a/zcu104_wafersentinel/build/vivado_proj/vivado.log
+# Journal file       : C:/Users/karik/Downloads/zcu104_wafersentinel_a/zcu104_wafersentinel/build/vivado_proj\vivado.jou
+# Running On         : SYNERGY
+# Platform           : Windows Server 2016 or Windows 10
+# Operating System   : 26300
+# Processor Detail   : AMD Ryzen 5 7520U with Radeon Graphics         
+# CPU Frequency      : 2795 MHz
+# CPU Physical cores : 4
+# CPU Logical cores  : 8
+# Host memory        : 16363 MB
+# Swap memory        : 14495 MB
+# Total Virtual      : 30858 MB
+# Available Virtual  : 9337 MB
+#-----------------------------------------------------------
+start_gui
+open_project C:/Users/karik/Downloads/zcu104_wafersentinel_a/zcu104_wafersentinel/build/vivado_proj/wafer_zcu104.xpr
+open_bd_design {C:/Users/karik/Downloads/zcu104_wafersentinel_a/zcu104_wafersentinel/build/vivado_proj/wafer_zcu104.srcs/sources_1/bd/design_1/design_1.bd}
+update_compile_order -fileset sources_1

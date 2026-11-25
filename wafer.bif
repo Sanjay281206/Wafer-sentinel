@@ -1,0 +1,6 @@
+// bootgen -image vivado/wafer.bif -arch zynqmp -process_bitstream bin     (run inside build/output/)
+// produces wafer_zcu104.bit.bin, the format Linux's fpgautil / fpga_manager loads (non-PYNQ Linux, see the guide).
+all:
+{
+    wafer_zcu104.bit
+}
